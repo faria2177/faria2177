@@ -3,54 +3,52 @@ import google.generativeai as genai
 import time
 import os
 
-# --- কনফিগারেশন ---
+# --- API Key Setup ---
+# সরাসরি কোডে না লিখে Streamlit Secrets ব্যবহার করা ভালো
+# আপাতত আপনার কি-টি দিয়ে ট্রাই করুন, কাজ না করলে নতুন কি তৈরি করবেন।
 API_KEY = "AIzaSyAtrQELPcIDk_uUs5NgdkcmhmJEoA8X7y8" 
 genai.configure(api_key=API_KEY)
 
 st.set_page_config(page_title="Video to AI Prompt", page_icon="🎬")
 
-# এখানে unsafe_allow_html=True ব্যবহার করা হয়েছে (সংশোধিত)
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #ff4b4b; color: white; }
-    </style>
-    """, unsafe_allow_html=True)
-
 st.title("🎬 AI Video Prompt Generator")
-st.info("ভিডিও আপলোড করুন এবং এআই আপনার ভিডিওর জন্য একটি টেক্সট প্রম্পট লিখে দেবে।")
 
-uploaded_file = st.file_uploader("ভিডিও ফাইল নির্বাচন করুন (MP4, MOV, AVI)...", type=["mp4", "mov", "avi"])
+uploaded_file = st.file_uploader("ভিডিও ফাইল নির্বাচন করুন...", type=["mp4", "mov", "avi"])
 
 if uploaded_file is not None:
-    with open("temp_video.mp4", "wb") as f:
-        f.write(uploaded_file.getbuffer())
-
-    st.video("temp_video.mp4")
-
+    # ভিডিও প্রিভিউ দেখানো
+    st.video(uploaded_file)
+    
     if st.button("Generate Prompt ✨"):
         try:
-            with st.spinner('AI ভিডিওটি দেখছে... ধৈর্য ধরুন।'):
+            with st.spinner('ভিডিও প্রসেস করা হচ্ছে...'):
+                # ভিডিও ফাইল সেভ করা
+                with open("temp_video.mp4", "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                # Gemini-তে আপলোড
                 video_file = genai.upload_file(path="temp_video.mp4")
                 
-                while video_file.state.name == "PROCESSING":
+                # প্রসেস হওয়া পর্যন্ত অপেক্ষা (ম্যাক্সিমাম ২ মিনিট)
+                wait_time = 0
+                while video_file.state.name == "PROCESSING" and wait_time < 60:
                     time.sleep(2)
                     video_file = genai.get_file(video_file.name)
+                    wait_time += 2
 
-                model = genai.GenerativeModel(model_name="gemini-1.5-flash")
-                prompt = (
-                    "Analyze this video and provide a high-quality descriptive prompt. "
-                    "Describe the visual elements, camera movement, lighting, and style."
-                )
-                
-                response = model.generate_content([video_file, prompt])
+                if video_file.state.name == "FAILED":
+                    st.error("গুগল ভিডিওটি প্রসেস করতে পারেনি।")
+                else:
+                    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+                    response = model.generate_content([video_file, "Describe this video for an AI prompt."])
+                    
+                    st.success("সফলভাবে প্রম্পট তৈরি হয়েছে!")
+                    st.code(response.text)
 
-                st.success("কাজ সম্পন্ন হয়েছে!")
-                st.subheader("Generated Prompt:")
-                st.code(response.text, language='text')
-                
+                # ক্লিনআপ
                 genai.delete_file(video_file.name)
-                os.remove("temp_video.mp4")
+                if os.path.exists("temp_video.mp4"):
+                    os.remove("temp_video.mp4")
 
         except Exception as e:
-            st.error(f"দুঃখিত, একটি সমস্যা হয়েছে: {e}")
+            st.error(f"Error Details: {e}") # এখানে এরর মেসেজ দেখাবে
